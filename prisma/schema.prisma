@@ -1,0 +1,44 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model AIService {
+  id            String   @id @default(cuid())
+  name          String   @unique
+  company       String
+  category      String
+  region        String
+  hqTimezone    String
+  website       String
+  downdetectorUrl String?
+  icon          String?
+  peakHoursStart Int    @default(9)
+  peakHoursEnd   Int    @default(12)
+  secondaryPeakStart Int @default(19)
+  secondaryPeakEnd   Int @default(22)
+  riskLevel     String   @default("medium")
+  lastChecked   DateTime?
+  status        String   @default("unknown")
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  outages       OutageReport[]
+}
+
+model OutageReport {
+  id          String   @id @default(cuid())
+  serviceId   String
+  service     AIService @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+  reportedAt  DateTime @default(now())
+  severity    String   @default("minor")
+  description String?
+  source      String   @default("downdetector")
+  hourOfDay   Int
+  dayOfWeek   Int
+  createdAt   DateTime @default(now())
+}
