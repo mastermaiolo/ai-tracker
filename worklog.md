@@ -65,3 +65,25 @@ Stage Summary:
 - Timezone auto-detection shown with green dot; manual selection shows amber warning
 - Language switcher with flag emojis in the header
 - All components now translatable
+
+---
+Task ID: 3
+Agent: Main Agent
+Task: Fix hydration errors (<p> containing <div> from Skeleton component)
+
+Work Log:
+- Analyzed two error screenshots uploaded by user via VLM
+- Both errors were hydration mismatches: `<p>` tags containing `<Skeleton>` which renders as `<div>`
+- HTML spec forbids `<p>` from containing block-level elements like `<div>`
+- Fixed all 5 instances in page.tsx by changing `<p>` to `<div>` for stat card value containers:
+  1. "Serviços Monitorados" value (line 401)
+  2. "Em Pico Agora" value (line 427)
+  3. "Melhor Horário" value (line 453)
+  4. "Seu Horário Local" value (line 479)
+  5. "IA Ideal Agora" value (line 509)
+- Build passes successfully with no errors
+
+Stage Summary:
+- Fixed both hydration errors that appeared in the preview
+- Changed `<p>` to `<div>` for all stat card value containers that could contain Skeleton
+- Build compiles and generates pages without issues

@@ -398,11 +398,11 @@ export default function Home() {
                     <p className="text-xs text-muted-foreground">
                       {t(locale, "monitoredServices")}
                     </p>
-                    <p className="text-2xl font-bold mt-1">
+                    <div className="text-2xl font-bold mt-1">
                       {peakData?.totalServices ?? (
                         <Skeleton className="h-7 w-10 inline-block" />
                       )}
-                    </p>
+                    </div>
                   </div>
                   <div className="h-10 w-10 rounded-lg bg-amber-500/10 flex items-center justify-center">
                     <MonitorSmartphone className="h-5 w-5 text-amber-500" />
@@ -424,11 +424,11 @@ export default function Home() {
                     <p className="text-xs text-muted-foreground">
                       {t(locale, "inPeakNow")}
                     </p>
-                    <p className="text-2xl font-bold mt-1 text-amber-600 dark:text-amber-400">
+                    <div className="text-2xl font-bold mt-1 text-amber-600 dark:text-amber-400">
                       {peakData?.servicesInPeak ?? (
                         <Skeleton className="h-7 w-10 inline-block" />
                       )}
-                    </p>
+                    </div>
                   </div>
                   <div className="h-10 w-10 rounded-lg bg-amber-500/10 flex items-center justify-center">
                     <Activity className="h-5 w-5 text-amber-500" />
@@ -450,11 +450,11 @@ export default function Home() {
                     <p className="text-xs text-muted-foreground">
                       {t(locale, "bestTime")}
                     </p>
-                    <p className="text-2xl font-bold mt-1 text-emerald-600 dark:text-emerald-400">
+                    <div className="text-2xl font-bold mt-1 text-emerald-600 dark:text-emerald-400">
                       {bestTimeInfo ?? (
                         <Skeleton className="h-7 w-16 inline-block" />
                       )}
-                    </p>
+                    </div>
                   </div>
                   <div className="h-10 w-10 rounded-lg bg-emerald-500/10 flex items-center justify-center">
                     <TrendingUp className="h-5 w-5 text-emerald-500" />
@@ -476,11 +476,11 @@ export default function Home() {
                     <p className="text-xs text-muted-foreground">
                       {t(locale, "localTime")}
                     </p>
-                    <p className="text-lg font-bold mt-1 font-mono">
+                    <div className="text-lg font-bold mt-1 font-mono">
                       {currentTime || (
                         <Skeleton className="h-6 w-20 inline-block" />
                       )}
-                    </p>
+                    </div>
                     <p className="text-[10px] text-muted-foreground">
                       {timezone.replace(/_/g, " ")}
                     </p>
@@ -506,9 +506,9 @@ export default function Home() {
                     <p className="text-xs text-muted-foreground">
                       {t(locale, "idealAINow")}
                     </p>
-                    <p className="text-lg font-bold mt-1 text-violet-600 dark:text-violet-400 truncate">
+                    <div className="text-lg font-bold mt-1 text-violet-600 dark:text-violet-400 truncate">
                       {idealAIService ? idealAIService.name : <Skeleton className="h-6 w-20 inline-block" />}
-                    </p>
+                    </div>
                     {idealAIService && (
                       <p className="text-[10px] text-muted-foreground">
                         {idealAIService.company} • {t(locale, "idealAIDesc")}
