@@ -105,3 +105,26 @@ Stage Summary:
 - PDF guide saved to /home/z/my-project/download/Guia_Deploy_GitHub_Vercel.pdf
 - 15 pages covering: prerequisites, Git setup, GitHub account, repository creation, code push, Vercel account, deployment, custom domains, environment variables, troubleshooting, SQLite considerations, and sharing strategies
 - All content in Portuguese with technical terms in English
+
+---
+Task ID: 5
+Agent: Main Agent + Subagent
+Task: Fix Vercel production error - SQLite/Prisma doesn't work in serverless
+
+Work Log:
+- Analyzed screenshot and Vercel logs showing "Error code 14: Unable to open the database file"
+- Root cause: SQLite requires a persistent filesystem, which Vercel serverless doesn't provide
+- Solution: Replaced Prisma/SQLite with in-memory static data store
+- Rewrote /src/lib/db.ts to use AI_SERVICES array directly as in-memory data
+- Implemented compatible interface: findMany, findUnique, update, create, stub outageReport
+- Stubbed /api/seed route to return immediate success
+- Made /src/lib/seed-services.ts a no-op
+- API routes (peak-hours, services, check-status) work without changes - same interface
+- Build passes successfully
+- Local testing confirms: 50 services loaded, peak hours working, recommendations working
+
+Stage Summary:
+- Fixed the production error by eliminating SQLite dependency
+- All 50 AI services now loaded from static data in ai-services.ts
+- No frontend changes needed - same API shape maintained
+- Ready for redeploy to Vercel via git push
