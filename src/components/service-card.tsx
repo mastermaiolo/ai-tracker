@@ -71,9 +71,30 @@ const statusLabels = (locale: Locale, status: string) => {
 
 const statusDotColors: Record<string, string> = {
   operational: "bg-emerald-500",
-  degraded: "bg-amber-500",
-  outage: "bg-red-500",
+  degraded: "bg-amber-500 animate-pulse",
+  outage: "bg-red-500 animate-pulse",
   unknown: "bg-gray-400",
+};
+
+const statusDescriptions: Record<Locale, Record<string, string>> = {
+  pt: {
+    operational: "Funcionando normalmente",
+    degraded: "Problemas parciais ou lentidão",
+    outage: "Serviço indisponível",
+    unknown: "Clique para verificar",
+  },
+  en: {
+    operational: "Running normally",
+    degraded: "Partial issues or slowdowns",
+    outage: "Service unavailable",
+    unknown: "Click to check",
+  },
+  zh: {
+    operational: "正常运行中",
+    degraded: "部分问题或缓慢",
+    outage: "服务不可用",
+    unknown: "点击检查",
+  },
 };
 
 export function ServiceCard({
@@ -96,6 +117,7 @@ export function ServiceCard({
 }: ServiceCardProps) {
   const risk = riskColors[riskLevel as keyof typeof riskColors] || riskColors.medium;
   const statusDot = statusDotColors[status] || statusDotColors.unknown;
+  const statusDesc = statusDescriptions[locale]?.[status] || statusDescriptions.en[status] || status;
 
   // Create 24-hour timeline
   const timeline = Array.from({ length: 24 }, (_, h) => {
@@ -166,19 +188,20 @@ export function ServiceCard({
                 <Tooltip>
                   <TooltipTrigger asChild>
                     <div
-                      className={`h-2 w-2 rounded-full ${statusDot} ${
-                        status === "degraded" || status === "outage"
-                          ? "animate-pulse"
-                          : ""
-                      }`}
+                      className={`h-2.5 w-2.5 rounded-full cursor-pointer ${statusDot}`}
                     />
                   </TooltipTrigger>
                   <TooltipContent>
-                    <p>Status: {statusLabels(locale, status)}</p>
-                    {lastChecked && (
+                    <p className="font-medium">{statusLabels(locale, status)}</p>
+                    <p className="text-xs text-muted-foreground">{statusDesc}</p>
+                    {lastChecked ? (
                       <p className="text-xs text-muted-foreground">
                         {t(locale, "verifiedAt")}{" "}
                         {new Date(lastChecked).toLocaleTimeString(timeLocale)}
+                      </p>
+                    ) : (
+                      <p className="text-xs text-muted-foreground italic">
+                        {t(locale, "neverChecked")}
                       </p>
                     )}
                   </TooltipContent>

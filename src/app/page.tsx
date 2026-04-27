@@ -19,6 +19,8 @@ import {
   MonitorSmartphone,
   Sparkles,
   AlertCircle,
+  CheckCircle2,
+  Info,
 } from "lucide-react";
 
 import { Card, CardContent } from "@/components/ui/card";
@@ -34,6 +36,12 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 
 import { ServiceCard } from "@/components/service-card";
 import { PeakHoursHeatmap } from "@/components/peak-hours-heatmap";
@@ -144,11 +152,47 @@ const regionLabel = (locale: Locale, regionValue: string) => {
 
 import { translations } from "@/lib/i18n";
 
+// Client-side status cache - persists across server cold starts
+const STATUS_CACHE_KEY = "ai-peak-monitor-status-cache";
+
+interface CachedStatus {
+  serviceId: string;
+  status: string;
+  lastChecked: string;
+  timestamp: number;
+}
+
+function loadStatusCache(): Map<string, CachedStatus> {
+  if (typeof window === "undefined") return new Map();
+  try {
+    const cached = localStorage.getItem(STATUS_CACHE_KEY);
+    if (cached) {
+      const parsed = JSON.parse(cached) as CachedStatus[];
+      const now = Date.now();
+      // Only keep entries less than 30 minutes old
+      const fresh = parsed.filter(e => now - e.timestamp < 30 * 60 * 1000);
+      return new Map(fresh.map(e => [e.serviceId, e]));
+    }
+  } catch {}
+  return new Map();
+}
+
+function saveStatusCache(cache: Map<string, CachedStatus>) {
+  if (typeof window === "undefined") return;
+  try {
+    const arr = Array.from(cache.values());
+    localStorage.setItem(STATUS_CACHE_KEY, JSON.stringify(arr));
+  } catch {}
+}
+
 export default function Home() {
   const { theme, setTheme } = useTheme();
   const { locale, setLocale } = useLocale();
   const queryClient = useQueryClient();
   const mountedRef = useRef(false);
+
+  // Client-side status cache
+  const [statusCache] = useState(() => loadStatusCache());
 
   // Filters
   const [timezone, setTimezone] = useState(detectUserTimezone());
@@ -158,17 +202,20 @@ export default function Home() {
   const [search, setSearch] = useState("");
   const [view, setView] = useState<"grid" | "heatmap">("grid");
   const [mounted, setMounted] = useState(false);
+  const [showStatusLegend, setShowStatusLegend] = useState(false);
+
+  // Check all statuses state
+  const [checkingAll, setCheckingAll] = useState(false);
+  const [checkedCount, setCheckedCount] = useState(0);
+  const [totalToCheck, setTotalToCheck] = useState(0);
 
   const handleTimezoneChange = (tz: string) => {
     setTimezone(tz);
     setAutoDetectedTz(false);
   };
 
-  // Use a ref to track if we've mounted, and set it via a callback pattern
-  // that doesn't call setState synchronously in useEffect
   useEffect(() => {
     mountedRef.current = true;
-    // Use requestAnimationFrame to defer the state update
     const raf = requestAnimationFrame(() => setMounted(true));
     return () => cancelAnimationFrame(raf);
   }, []);
@@ -196,17 +243,6 @@ export default function Home() {
     return () => clearInterval(interval);
   }, [timezone, locale]);
 
-  // Seed database on mount
-  const seedQuery = useQuery({
-    queryKey: ["seed"],
-    queryFn: async () => {
-      const res = await fetch("/api/seed");
-      return res.json();
-    },
-    staleTime: Infinity,
-    retry: 1,
-  });
-
   // Fetch peak hours data
   const {
     data: peakData,
@@ -224,11 +260,22 @@ export default function Home() {
       if (!res.ok) throw new Error("Failed to fetch");
       return res.json();
     },
-    enabled: seedQuery.isSuccess,
-    refetchInterval: 300000, // Refresh every 5 minutes
+    refetchInterval: 300000,
   });
 
-  // Check status mutation
+  // Merge server data with client-side status cache
+  const servicesWithCachedStatus = useMemo(() => {
+    if (!peakData?.services) return [];
+    return peakData.services.map(s => {
+      const cached = statusCache.get(s.id);
+      if (cached && cached.status !== "unknown" && s.status === "unknown") {
+        return { ...s, status: cached.status, lastChecked: cached.lastChecked };
+      }
+      return s;
+    });
+  }, [peakData?.services, statusCache]);
+
+  // Check single status mutation
   const [checkingId, setCheckingId] = useState<string | null>(null);
   const checkStatusMutation = useMutation({
     mutationFn: async (serviceId: string) => {
@@ -241,6 +288,18 @@ export default function Home() {
     },
     onMutate: (serviceId) => {
       setCheckingId(serviceId);
+    },
+    onSuccess: (data, serviceId) => {
+      // Update client-side cache
+      if (data.status) {
+        statusCache.set(serviceId, {
+          serviceId,
+          status: data.status,
+          lastChecked: data.checkedAt || new Date().toISOString(),
+          timestamp: Date.now(),
+        });
+        saveStatusCache(statusCache);
+      }
     },
     onSettled: () => {
       setCheckingId(null);
@@ -255,25 +314,112 @@ export default function Home() {
     [checkStatusMutation]
   );
 
-  // Filter services by search
-  const services = peakData?.services;
+  // Check ALL statuses - batched approach
+  const handleCheckAllStatuses = useCallback(async () => {
+    if (!peakData?.services || checkingAll) return;
+
+    const allIds = peakData.services.map(s => s.id);
+    setCheckingAll(true);
+    setCheckedCount(0);
+    setTotalToCheck(allIds.length);
+
+    // Process in batches of 5 to avoid overloading
+    const BATCH_SIZE = 5;
+    for (let i = 0; i < allIds.length; i += BATCH_SIZE) {
+      const batch = allIds.slice(i, i + BATCH_SIZE);
+      try {
+        const res = await fetch("/api/check-all-statuses", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ serviceIds: batch, useLlm: true }),
+        });
+        const data = await res.json();
+
+        if (data.results) {
+          for (const result of data.results) {
+            statusCache.set(result.serviceId, {
+              serviceId: result.serviceId,
+              status: result.status,
+              lastChecked: result.checkedAt,
+              timestamp: Date.now(),
+            });
+          }
+          saveStatusCache(statusCache);
+        }
+
+        setCheckedCount(prev => Math.min(prev + batch.length, allIds.length));
+      } catch (err) {
+        console.error("Batch check failed:", err);
+        setCheckedCount(prev => Math.min(prev + batch.length, allIds.length));
+      }
+
+      // Delay between batches
+      if (i + BATCH_SIZE < allIds.length) {
+        await new Promise(resolve => setTimeout(resolve, 500));
+      }
+    }
+
+    setCheckingAll(false);
+    queryClient.invalidateQueries({ queryKey: ["peak-hours"] });
+  }, [peakData?.services, checkingAll, statusCache, queryClient]);
+
+  // Auto-check statuses on first load (check only a few services to not overwhelm)
+  const autoCheckDone = useRef(false);
+  useEffect(() => {
+    if (autoCheckDone.current || !peakData?.services || peakData.services.length === 0) return;
+
+    const hasCachedStatuses = peakData.services.some(s => {
+      const cached = statusCache.get(s.id);
+      return cached && cached.status !== "unknown";
+    });
+
+    // Only auto-check if there are no cached statuses at all
+    if (!hasCachedStatuses) {
+      autoCheckDone.current = true;
+      // Auto-check the first batch of 5 services
+      const firstFive = peakData.services.slice(0, 5).map(s => s.id);
+
+      fetch("/api/check-all-statuses", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ serviceIds: firstFive, useLlm: true }),
+      })
+        .then(res => res.json())
+        .then(data => {
+          if (data.results) {
+            for (const result of data.results) {
+              statusCache.set(result.serviceId, {
+                serviceId: result.serviceId,
+                status: result.status,
+                lastChecked: result.checkedAt,
+                timestamp: Date.now(),
+              });
+            }
+            saveStatusCache(statusCache);
+            queryClient.invalidateQueries({ queryKey: ["peak-hours"] });
+          }
+        })
+        .catch(console.error);
+    }
+  }, [peakData?.services, statusCache, queryClient]);
+
+  // Filter services by search - use cached status version
   const filteredServices = useMemo(() => {
-    if (!services) return [];
-    if (!search) return services;
+    if (!servicesWithCachedStatus) return [];
+    if (!search) return servicesWithCachedStatus;
     const lower = search.toLowerCase();
-    return services.filter(
+    return servicesWithCachedStatus.filter(
       (s) =>
         s.name.toLowerCase().includes(lower) ||
         s.company.toLowerCase().includes(lower)
     );
-  }, [services, search]);
+  }, [servicesWithCachedStatus, search]);
 
   // Compute ideal AI service
   const idealAIService = useMemo(() => {
     if (!filteredServices || filteredServices.length === 0) return null;
     const offPeak = filteredServices.filter(s => !s.isCurrentlyInPeak);
     if (offPeak.length === 0) return null;
-    // Sort by risk: low first, then medium, then high
     const riskOrder = { low: 0, medium: 1, high: 2 };
     offPeak.sort((a, b) => (riskOrder[a.riskLevel as keyof typeof riskOrder] ?? 1) - (riskOrder[b.riskLevel as keyof typeof riskOrder] ?? 1));
     return offPeak[0];
@@ -283,7 +429,6 @@ export default function Home() {
   const currentHourLocal =
     peakData?.currentHourLocal ?? getCurrentHourInTimezone(timezone);
 
-  // Best time info for summary - compute without useMemo to avoid React Compiler issues
   const bestTimeInfo = peakData
     ? computeBestTime(
         peakData.timeSlots,
@@ -291,6 +436,16 @@ export default function Home() {
         peakData.totalServices
       )
     : null;
+
+  // Count statuses for display
+  const statusCounts = useMemo(() => {
+    const counts = { operational: 0, degraded: 0, outage: 0, unknown: 0 };
+    for (const s of servicesWithCachedStatus) {
+      if (s.status in counts) counts[s.status as keyof typeof counts]++;
+      else counts.unknown++;
+    }
+    return counts;
+  }, [servicesWithCachedStatus]);
 
   if (!mounted) return null;
 
@@ -325,7 +480,6 @@ export default function Home() {
                     ))}
                   </SelectContent>
                 </Select>
-                {/* Timezone auto/manual indicator */}
                 <div className="flex items-center gap-1">
                   {autoDetectedTz ? (
                     <span className="text-[10px] text-emerald-500 flex items-center gap-0.5">
@@ -523,6 +677,120 @@ export default function Home() {
             </Card>
           </motion.div>
         </div>
+
+        {/* Status Overview Bar */}
+        {servicesWithCachedStatus.length > 0 && (
+          <motion.div
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.25 }}
+          >
+            <Card>
+              <CardContent className="p-3">
+                <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2">
+                  <div className="flex items-center gap-3 flex-wrap">
+                    <span className="text-xs font-medium text-muted-foreground">
+                      {t(locale, "statusLegendTitle")}:
+                    </span>
+                    <div className="flex items-center gap-3">
+                      <TooltipProvider>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <div className="flex items-center gap-1 cursor-help">
+                              <span className="h-2 w-2 rounded-full bg-emerald-500" />
+                              <span className="text-[10px] font-medium">{statusCounts.operational}</span>
+                              <span className="text-[10px] text-muted-foreground">{t(locale, "statusOperational")}</span>
+                            </div>
+                          </TooltipTrigger>
+                          <TooltipContent>
+                            <p>{t(locale, "statusLegendOp")}</p>
+                          </TooltipContent>
+                        </Tooltip>
+                      </TooltipProvider>
+
+                      <TooltipProvider>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <div className="flex items-center gap-1 cursor-help">
+                              <span className="h-2 w-2 rounded-full bg-amber-500" />
+                              <span className="text-[10px] font-medium">{statusCounts.degraded}</span>
+                              <span className="text-[10px] text-muted-foreground">{t(locale, "statusDegraded")}</span>
+                            </div>
+                          </TooltipTrigger>
+                          <TooltipContent>
+                            <p>{t(locale, "statusLegendDeg")}</p>
+                          </TooltipContent>
+                        </Tooltip>
+                      </TooltipProvider>
+
+                      <TooltipProvider>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <div className="flex items-center gap-1 cursor-help">
+                              <span className="h-2 w-2 rounded-full bg-red-500" />
+                              <span className="text-[10px] font-medium">{statusCounts.outage}</span>
+                              <span className="text-[10px] text-muted-foreground">{t(locale, "statusOutage")}</span>
+                            </div>
+                          </TooltipTrigger>
+                          <TooltipContent>
+                            <p>{t(locale, "statusLegendOut")}</p>
+                          </TooltipContent>
+                        </Tooltip>
+                      </TooltipProvider>
+
+                      <TooltipProvider>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <div className="flex items-center gap-1 cursor-help">
+                              <span className="h-2 w-2 rounded-full bg-gray-400" />
+                              <span className="text-[10px] font-medium">{statusCounts.unknown}</span>
+                              <span className="text-[10px] text-muted-foreground">{t(locale, "statusUnknown")}</span>
+                            </div>
+                          </TooltipTrigger>
+                          <TooltipContent>
+                            <p>{t(locale, "statusLegendUnk")}</p>
+                          </TooltipContent>
+                        </Tooltip>
+                      </TooltipProvider>
+                    </div>
+                  </div>
+
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-7 text-xs gap-1"
+                    onClick={handleCheckAllStatuses}
+                    disabled={checkingAll || !peakData?.services || peakData.services.length === 0}
+                  >
+                    {checkingAll ? (
+                      <>
+                        <RefreshCw className="h-3 w-3 animate-spin" />
+                        {t(locale, "checkingAll")} ({checkedCount}/{totalToCheck})
+                      </>
+                    ) : (
+                      <>
+                        <CheckCircle2 className="h-3 w-3" />
+                        {t(locale, "checkAllStatuses")}
+                      </>
+                    )}
+                  </Button>
+                </div>
+
+                {/* Progress bar for batch checking */}
+                {checkingAll && totalToCheck > 0 && (
+                  <div className="mt-2 w-full bg-muted rounded-full h-1.5 overflow-hidden">
+                    <motion.div
+                      className="h-full bg-amber-500 rounded-full"
+                      initial={{ width: 0 }}
+                      animate={{ width: `${(checkedCount / totalToCheck) * 100}%` }}
+                      transition={{ duration: 0.3 }}
+                    />
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </motion.div>
+        )}
 
         {/* Recommendation */}
         {peakData?.recommendation && (
