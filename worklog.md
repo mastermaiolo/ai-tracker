@@ -87,3 +87,21 @@ Stage Summary:
 - Fixed both hydration errors that appeared in the preview
 - Changed `<p>` to `<div>` for all stat card value containers that could contain Skeleton
 - Build compiles and generates pages without issues
+
+---
+Task ID: 4
+Agent: Main Agent
+Task: Create comprehensive deployment guide PDF (GitHub + Vercel) in Portuguese
+
+Work Log:
+- Generated cascade color palette for professional PDF styling
+- Created 15-page comprehensive guide covering all 18 sections
+- Resolved font compatibility issues (variable fonts, broken TTF files)
+- Used working fonts: LiberationSans, LiberationSerif, DejaVuSansMono, SarasaMonoSC
+- Generated PDF via ReportLab with proper palette-driven styling
+- Passed PDF QA checks (10/10 pass, 2 minor warnings)
+
+Stage Summary:
+- PDF guide saved to /home/z/my-project/download/Guia_Deploy_GitHub_Vercel.pdf
+- 15 pages covering: prerequisites, Git setup, GitHub account, repository creation, code push, Vercel account, deployment, custom domains, environment variables, troubleshooting, SQLite considerations, and sharing strategies
+- All content in Portuguese with technical terms in English
