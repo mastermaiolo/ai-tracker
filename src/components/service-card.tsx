@@ -13,6 +13,7 @@ import { Clock, AlertTriangle, ExternalLink, Loader2 } from "lucide-react";
 import { REGION_FLAGS, type Category } from "@/lib/ai-services";
 import { formatTimeRange, formatHour } from "@/lib/timezone-utils";
 import { motion } from "framer-motion";
+import { t, type Locale } from "@/lib/i18n";
 
 interface ServiceCardProps {
   id: string;
@@ -31,31 +32,48 @@ interface ServiceCardProps {
   lastChecked?: string | null;
   onCheckStatus: (id: string) => void;
   isChecking: boolean;
+  locale: Locale;
 }
 
 const riskColors = {
   high: {
     dot: "bg-red-500",
     badge: "bg-red-500/10 text-red-500 border-red-500/20",
-    label: "Alto",
   },
   medium: {
     dot: "bg-amber-500",
     badge: "bg-amber-500/10 text-amber-500 border-amber-500/20",
-    label: "Médio",
   },
   low: {
     dot: "bg-emerald-500",
     badge: "bg-emerald-500/10 text-emerald-500 border-emerald-500/20",
-    label: "Baixo",
   },
 };
 
-const statusColors = {
-  operational: { dot: "bg-emerald-500", label: "Operacional" },
-  degraded: { dot: "bg-amber-500", label: "Degradado" },
-  outage: { dot: "bg-red-500", label: "Indisponível" },
-  unknown: { dot: "bg-gray-400", label: "Desconhecido" },
+const riskLabels = (locale: Locale, level: string) => {
+  const map: Record<string, string> = {
+    high: t(locale, "riskHigh"),
+    medium: t(locale, "riskMedium"),
+    low: t(locale, "riskLow"),
+  };
+  return map[level] || level;
+};
+
+const statusLabels = (locale: Locale, status: string) => {
+  const map: Record<string, string> = {
+    operational: t(locale, "statusOperational"),
+    degraded: t(locale, "statusDegraded"),
+    outage: t(locale, "statusOutage"),
+    unknown: t(locale, "statusUnknown"),
+  };
+  return map[status] || status;
+};
+
+const statusDotColors: Record<string, string> = {
+  operational: "bg-emerald-500",
+  degraded: "bg-amber-500",
+  outage: "bg-red-500",
+  unknown: "bg-gray-400",
 };
 
 export function ServiceCard({
@@ -74,10 +92,10 @@ export function ServiceCard({
   lastChecked,
   onCheckStatus,
   isChecking,
+  locale,
 }: ServiceCardProps) {
   const risk = riskColors[riskLevel as keyof typeof riskColors] || riskColors.medium;
-  const statusInfo =
-    statusColors[status as keyof typeof statusColors] || statusColors.unknown;
+  const statusDot = statusDotColors[status] || statusDotColors.unknown;
 
   // Create 24-hour timeline
   const timeline = Array.from({ length: 24 }, (_, h) => {
@@ -102,6 +120,8 @@ export function ServiceCard({
 
     return { hour: h, isPrimary, isSecondary };
   });
+
+  const timeLocale = locale === "zh" ? "zh-CN" : locale === "en" ? "en-GB" : "pt-BR";
 
   return (
     <TooltipProvider>
@@ -146,7 +166,7 @@ export function ServiceCard({
                 <Tooltip>
                   <TooltipTrigger asChild>
                     <div
-                      className={`h-2 w-2 rounded-full ${statusInfo.dot} ${
+                      className={`h-2 w-2 rounded-full ${statusDot} ${
                         status === "degraded" || status === "outage"
                           ? "animate-pulse"
                           : ""
@@ -154,11 +174,11 @@ export function ServiceCard({
                     />
                   </TooltipTrigger>
                   <TooltipContent>
-                    <p>Status: {statusInfo.label}</p>
+                    <p>Status: {statusLabels(locale, status)}</p>
                     {lastChecked && (
                       <p className="text-xs text-muted-foreground">
-                        Verificado:{" "}
-                        {new Date(lastChecked).toLocaleTimeString("pt-BR")}
+                        {t(locale, "verifiedAt")}{" "}
+                        {new Date(lastChecked).toLocaleTimeString(timeLocale)}
                       </p>
                     )}
                   </TooltipContent>
@@ -173,7 +193,7 @@ export function ServiceCard({
                 className={`text-[10px] px-1.5 py-0 ${risk.badge}`}
               >
                 <span className={`h-1.5 w-1.5 rounded-full ${risk.dot} mr-1`} />
-                Risco {risk.label}
+                {riskLabels(locale, riskLevel)}
               </Badge>
               <Badge variant="outline" className="text-[10px] px-1.5 py-0">
                 {category}
@@ -184,14 +204,14 @@ export function ServiceCard({
             <div className="space-y-1.5 mb-3">
               <div className="flex items-center gap-1.5 text-xs">
                 <Clock className="h-3 w-3 text-orange-500 flex-shrink-0" />
-                <span className="text-muted-foreground">Pico primário:</span>
+                <span className="text-muted-foreground">{t(locale, "primaryPeak")}:</span>
                 <span className="font-medium">
                   {formatTimeRange(primaryPeakLocalStart, primaryPeakLocalEnd)}
                 </span>
               </div>
               <div className="flex items-center gap-1.5 text-xs">
                 <Clock className="h-3 w-3 text-amber-400 flex-shrink-0" />
-                <span className="text-muted-foreground">Pico secundário:</span>
+                <span className="text-muted-foreground">{t(locale, "secondaryPeak")}:</span>
                 <span className="font-medium">
                   {formatTimeRange(
                     secondaryPeakLocalStart,
@@ -221,10 +241,10 @@ export function ServiceCard({
                       <p>
                         {formatHour(hour)} -{" "}
                         {isPrimary
-                          ? "Pico primário"
+                          ? t(locale, "primaryPeak")
                           : isSecondary
-                            ? "Pico secundário"
-                            : "Fora de pico"}
+                            ? t(locale, "secondaryPeak")
+                            : t(locale, "outOfPeak")}
                       </p>
                     </TooltipContent>
                   </Tooltip>
@@ -252,7 +272,7 @@ export function ServiceCard({
               ) : (
                 <ExternalLink className="h-3 w-3 mr-1" />
               )}
-              {isChecking ? "Verificando..." : "Verificar Status"}
+              {isChecking ? t(locale, "checking") : t(locale, "checkStatus")}
             </Button>
           </CardContent>
         </Card>

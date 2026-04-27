@@ -35,3 +35,33 @@ Stage Summary:
 - Dark mode support
 - Responsive design
 - Portuguese UI
+
+---
+Task ID: 2
+Agent: Main Agent
+Task: Add i18n, Ideal AI card, timezone auto-detection badge, and language switcher
+
+Work Log:
+- Created /src/lib/i18n.ts with full translation system for 3 languages (PT, EN, ZH)
+- Created /src/components/locale-provider.tsx with React context for locale management
+- Updated /src/components/providers.tsx to wrap with LocaleProvider
+- Updated /src/components/service-card.tsx with locale prop and t() translations
+- Updated /src/components/peak-hours-heatmap.tsx with locale prop and t() translations
+- Updated /src/components/recommendation.tsx with locale prop and t() translations
+- Updated /src/app/page.tsx with major enhancements:
+  - Added language switcher (🇵🇹🇬🇧🇨🇳 flag buttons) in header
+  - Added timezone auto/manual detection badge (green=auto, amber=manual warning)
+  - Added "IA Ideal Agora" card (5th summary card with violet accent)
+  - Changed grid from 4 to 5 columns for the new card
+  - Replaced ALL hardcoded Portuguese strings with t() calls
+  - Added categoryLabel() and regionLabel() helper functions
+  - Updated time formatting to use locale-specific format
+- Lint passes without errors
+- Application running successfully
+
+Stage Summary:
+- Full i18n support for Portuguese, British English, and Chinese
+- "IA Ideal Agora" card suggests best off-peak AI service
+- Timezone auto-detection shown with green dot; manual selection shows amber warning
+- Language switcher with flag emojis in the header
+- All components now translatable

@@ -9,11 +9,13 @@ import {
   XCircle,
 } from "lucide-react";
 import type { Recommendation as RecommendationType } from "@/lib/timezone-utils";
+import { t, type Locale } from "@/lib/i18n";
 
 interface RecommendationProps {
   recommendation: RecommendationType;
   servicesInPeak: number;
   totalServices: number;
+  locale: Locale;
 }
 
 const levelConfig = {
@@ -41,10 +43,24 @@ export function Recommendation({
   recommendation,
   servicesInPeak,
   totalServices,
+  locale,
 }: RecommendationProps) {
   const config = levelConfig[recommendation.level];
   const Icon = config.icon;
   const ratio = totalServices > 0 ? Math.round((servicesInPeak / totalServices) * 100) : 0;
+
+  const levelTitle = () => {
+    switch (recommendation.level) {
+      case "great":
+        return `✨ ${t(locale, "greatTime")}`;
+      case "okay":
+        return `⚠️ ${t(locale, "somePeak")}`;
+      case "wait":
+        return `🔴 ${t(locale, "manyPeak")}`;
+      default:
+        return "";
+    }
+  };
 
   return (
     <motion.div
@@ -68,11 +84,7 @@ export function Recommendation({
             </motion.div>
             <div className="flex-1 min-w-0">
               <h3 className={`font-semibold text-sm ${config.titleClass}`}>
-                {recommendation.level === "great"
-                  ? "✨ Ótimo momento para usar IA!"
-                  : recommendation.level === "okay"
-                    ? "⚠️ Alguns serviços em pico"
-                    : "🔴 Muitos serviços em pico"}
+                {levelTitle()}
               </h3>
               <p className="text-xs text-muted-foreground mt-1">
                 {recommendation.message}
@@ -97,10 +109,10 @@ export function Recommendation({
                   </div>
                   <div className="flex justify-between mt-1">
                     <span className="text-[10px] text-muted-foreground">
-                      {servicesInPeak} em pico ({ratio}%)
+                      {servicesInPeak} {t(locale, "inPeakLabel")} ({ratio}%)
                     </span>
                     <span className="text-[10px] text-muted-foreground">
-                      {totalServices - servicesInPeak} disponíveis
+                      {totalServices - servicesInPeak} {t(locale, "available")}
                     </span>
                   </div>
                 </div>
@@ -110,7 +122,7 @@ export function Recommendation({
               {recommendation.currentPeakServices.length > 0 && (
                 <div className="mt-2">
                   <p className="text-[10px] text-muted-foreground mb-1">
-                    Em pico agora:
+                    {t(locale, "inPeakLabel")}:
                   </p>
                   <div className="flex flex-wrap gap-1">
                     {recommendation.currentPeakServices.slice(0, 6).map((name) => (
@@ -123,7 +135,7 @@ export function Recommendation({
                     ))}
                     {recommendation.currentPeakServices.length > 6 && (
                       <span className="text-[10px] text-muted-foreground">
-                        +{recommendation.currentPeakServices.length - 6} mais
+                        +{recommendation.currentPeakServices.length - 6} {t(locale, "more")}
                       </span>
                     )}
                   </div>
@@ -135,7 +147,7 @@ export function Recommendation({
                 <div className="mt-2 flex items-center gap-1 text-xs">
                   <Clock className="h-3 w-3 text-emerald-500" />
                   <span className="text-muted-foreground">
-                    Próximo bom horário:
+                    {t(locale, "nextGoodSlot")}
                   </span>
                   <span className="font-medium text-emerald-500">
                     {recommendation.nextGoodSlot}

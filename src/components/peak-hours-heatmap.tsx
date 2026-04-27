@@ -20,16 +20,19 @@ import {
 } from "@/components/ui/tooltip";
 import { Info } from "lucide-react";
 import type { HeatmapDataPoint } from "@/lib/timezone-utils";
+import { t, type Locale } from "@/lib/i18n";
 
 // CustomTooltip defined OUTSIDE the component to avoid React Compiler error
 function HeatmapCustomTooltip({
   active,
   payload,
   totalServices,
+  locale,
 }: {
   active?: boolean;
   payload?: Array<{ payload: HeatmapDataPoint }>;
   totalServices: number;
+  locale: Locale;
 }) {
   if (active && payload && payload.length) {
     const d = payload[0].payload;
@@ -38,22 +41,22 @@ function HeatmapCustomTooltip({
       <div className="bg-popover border border-border rounded-lg p-3 shadow-lg max-w-xs">
         <p className="font-semibold text-sm mb-1">{d.hourLabel}</p>
         <p className="text-xs text-muted-foreground mb-2">
-          {d.totalPeakCount} de {totalServices} serviços em pico ({ratio}%)
+          {d.totalPeakCount} {t(locale, "ofServices")} {totalServices} {t(locale, "servicesInPeak")} ({ratio}%)
         </p>
         <div className="flex gap-3 mb-1">
           <span className="text-xs flex items-center gap-1">
             <span className="h-2 w-2 rounded-full bg-orange-500 inline-block" />
-            Primário: {d.primaryPeakCount}
+            {t(locale, "primaryPeakLabel")}: {d.primaryPeakCount}
           </span>
           <span className="text-xs flex items-center gap-1">
             <span className="h-2 w-2 rounded-full bg-amber-400 inline-block" />
-            Secundário: {d.secondaryPeakCount}
+            {t(locale, "secondaryPeakLabel")}: {d.secondaryPeakCount}
           </span>
         </div>
         {d.peakServiceNames.length > 0 && (
           <div className="mt-2 pt-2 border-t border-border">
             <p className="text-[10px] text-muted-foreground mb-1">
-              Serviços em pico:
+              {t(locale, "peakServicesLabel")}
             </p>
             <div className="flex flex-wrap gap-1">
               {d.peakServiceNames.slice(0, 8).map((name) => (
@@ -66,7 +69,7 @@ function HeatmapCustomTooltip({
               ))}
               {d.peakServiceNames.length > 8 && (
                 <span className="text-[10px] text-muted-foreground">
-                  +{d.peakServiceNames.length - 8} mais
+                  +{d.peakServiceNames.length - 8} {t(locale, "more")}
                 </span>
               )}
             </div>
@@ -82,19 +85,21 @@ interface PeakHoursHeatmapProps {
   data: HeatmapDataPoint[];
   currentHour: number;
   totalServices: number;
+  locale: Locale;
 }
 
 export function PeakHoursHeatmap({
   data,
   currentHour,
   totalServices,
+  locale,
 }: PeakHoursHeatmapProps) {
   return (
     <Card>
       <CardHeader className="pb-2">
         <div className="flex items-center justify-between">
           <CardTitle className="text-base font-semibold">
-            Mapa de Calor - Horários de Pico (24h)
+            {t(locale, "heatmapTitle")}
           </CardTitle>
           <TooltipProvider>
             <Tooltip>
@@ -103,11 +108,10 @@ export function PeakHoursHeatmap({
               </TooltipTrigger>
               <TooltipContent className="max-w-xs">
                 <p>
-                  Este gráfico mostra quantos serviços de IA estão em horário de
-                  pico para cada hora do dia no seu fuso horário.
+                  {t(locale, "heatmapInfo")}
                 </p>
                 <p className="mt-1 text-xs">
-                  🔴 Muitos em pico • 🟡 Alguns em pico • 🟢 Poucos em pico
+                  🔴 {t(locale, "heatmapLegendHigh")} • 🟡 {t(locale, "heatmapLegendMid")} • 🟢 {t(locale, "heatmapLegendLow")}
                 </p>
               </TooltipContent>
             </Tooltip>
@@ -117,15 +121,15 @@ export function PeakHoursHeatmap({
         <div className="flex items-center gap-4 text-xs text-muted-foreground">
           <span className="flex items-center gap-1">
             <span className="h-2.5 w-2.5 rounded-sm bg-orange-500" />
-            Pico primário
+            {t(locale, "primaryPeakLabel")}
           </span>
           <span className="flex items-center gap-1">
             <span className="h-2.5 w-2.5 rounded-sm bg-amber-400" />
-            Pico secundário
+            {t(locale, "secondaryPeakLabel")}
           </span>
           <span className="flex items-center gap-1">
             <span className="h-5 w-0.5 bg-foreground/50" />
-            Hora atual
+            {t(locale, "currentTimeLabel")}
           </span>
         </div>
       </CardHeader>
@@ -140,7 +144,7 @@ export function PeakHoursHeatmap({
               <XAxis dataKey="hourLabel" tick={{ fontSize: 10 }} interval={1} />
               <YAxis tick={{ fontSize: 10 }} />
               <RechartsTooltip
-                content={<HeatmapCustomTooltip totalServices={totalServices} />}
+                content={<HeatmapCustomTooltip totalServices={totalServices} locale={locale} />}
               />
               <Bar
                 dataKey="primaryPeakCount"
@@ -204,10 +208,10 @@ export function PeakHoursHeatmap({
                     </TooltipTrigger>
                     <TooltipContent>
                       <p className="font-semibold">
-                        {point.hourLabel} - {point.totalPeakCount} em pico
+                        {point.hourLabel} - {point.totalPeakCount} {t(locale, "inPeakLabel")}
                       </p>
                       <p className="text-xs">
-                        {Math.round(ratio * 100)}% dos serviços
+                        {Math.round(ratio * 100)}% {t(locale, "ofServices")}
                       </p>
                     </TooltipContent>
                   </Tooltip>

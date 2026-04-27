@@ -17,6 +17,8 @@ import {
   BarChart3,
   RefreshCw,
   MonitorSmartphone,
+  Sparkles,
+  AlertCircle,
 } from "lucide-react";
 
 import { Card, CardContent } from "@/components/ui/card";
@@ -49,6 +51,8 @@ import {
   getCurrentHourInTimezone,
   type HeatmapDataPoint,
 } from "@/lib/timezone-utils";
+import { useLocale } from "@/components/locale-provider";
+import { t, LOCALE_FLAGS, LOCALE_NAMES, type Locale } from "@/lib/i18n";
 
 // Types
 interface ServiceData {
@@ -111,18 +115,54 @@ function computeBestTime(
   return null;
 }
 
+const categoryLabel = (locale: Locale, cat: Category) => {
+  const keyMap: Record<Category, string> = {
+    LLM: "LLMs",
+    Research: "Research",
+    Image: "Image",
+    Video: "Video",
+    Writing: "Writing",
+    Coding: "Coding",
+    Audio: "Audio",
+  };
+  return t(locale, keyMap[cat] as keyof typeof translations.pt);
+};
+
+const regionLabel = (locale: Locale, regionValue: string) => {
+  const keyMap: Record<string, string> = {
+    all: "allRegions",
+    US: "americas",
+    EU: "europe",
+    CN: "asia",
+    AU: "oceania",
+    CA: "canada",
+    IN: "india",
+    LU: "luxembourg",
+  };
+  return t(locale, (keyMap[regionValue] || "allRegions") as keyof typeof translations.pt);
+};
+
+import { translations } from "@/lib/i18n";
+
 export default function Home() {
   const { theme, setTheme } = useTheme();
+  const { locale, setLocale } = useLocale();
   const queryClient = useQueryClient();
   const mountedRef = useRef(false);
 
   // Filters
   const [timezone, setTimezone] = useState(detectUserTimezone());
+  const [autoDetectedTz, setAutoDetectedTz] = useState(true);
   const [category, setCategory] = useState<string>("all");
   const [region, setRegion] = useState<string>("all");
   const [search, setSearch] = useState("");
   const [view, setView] = useState<"grid" | "heatmap">("grid");
   const [mounted, setMounted] = useState(false);
+
+  const handleTimezoneChange = (tz: string) => {
+    setTimezone(tz);
+    setAutoDetectedTz(false);
+  };
 
   // Use a ref to track if we've mounted, and set it via a callback pattern
   // that doesn't call setState synchronously in useEffect
@@ -136,10 +176,11 @@ export default function Home() {
   // Current time
   const [currentTime, setCurrentTime] = useState("");
   useEffect(() => {
+    const timeLocale = locale === "zh" ? "zh-CN" : locale === "en" ? "en-GB" : "pt-BR";
     const updateTime = () => {
       try {
         setCurrentTime(
-          new Date().toLocaleTimeString("pt-BR", {
+          new Date().toLocaleTimeString(timeLocale, {
             timeZone: timezone,
             hour: "2-digit",
             minute: "2-digit",
@@ -147,13 +188,13 @@ export default function Home() {
           })
         );
       } catch {
-        setCurrentTime(new Date().toLocaleTimeString("pt-BR"));
+        setCurrentTime(new Date().toLocaleTimeString(timeLocale));
       }
     };
     updateTime();
     const interval = setInterval(updateTime, 1000);
     return () => clearInterval(interval);
-  }, [timezone]);
+  }, [timezone, locale]);
 
   // Seed database on mount
   const seedQuery = useQuery({
@@ -227,6 +268,17 @@ export default function Home() {
     );
   }, [services, search]);
 
+  // Compute ideal AI service
+  const idealAIService = useMemo(() => {
+    if (!filteredServices || filteredServices.length === 0) return null;
+    const offPeak = filteredServices.filter(s => !s.isCurrentlyInPeak);
+    if (offPeak.length === 0) return null;
+    // Sort by risk: low first, then medium, then high
+    const riskOrder = { low: 0, medium: 1, high: 2 };
+    offPeak.sort((a, b) => (riskOrder[a.riskLevel as keyof typeof riskOrder] ?? 1) - (riskOrder[b.riskLevel as keyof typeof riskOrder] ?? 1));
+    return offPeak[0];
+  }, [filteredServices]);
+
   // Current hour in user timezone
   const currentHourLocal =
     peakData?.currentHourLocal ?? getCurrentHourInTimezone(timezone);
@@ -251,28 +303,43 @@ export default function Home() {
             <div>
               <h1 className="text-xl sm:text-2xl font-bold tracking-tight flex items-center gap-2">
                 <Zap className="h-5 w-5 text-amber-500" />
-                AI Peak Hours Monitor
+                {t(locale, "appTitle")}
               </h1>
               <p className="text-xs sm:text-sm text-muted-foreground mt-0.5">
-                Descubra os horários de pico e limitações dos serviços de IA
-                globais
+                {t(locale, "appSubtitle")}
               </p>
             </div>
             <div className="flex items-center gap-2 flex-wrap">
               {/* Timezone selector */}
-              <Select value={timezone} onValueChange={setTimezone}>
-                <SelectTrigger className="w-[200px] h-8 text-xs">
-                  <Globe className="h-3.5 w-3.5 mr-1 text-muted-foreground" />
-                  <SelectValue placeholder="Fuso horário" />
-                </SelectTrigger>
-                <SelectContent>
-                  {COMMON_TIMEZONES.map((tz) => (
-                    <SelectItem key={tz} value={tz} className="text-xs">
-                      {tz.replace(/_/g, " ")}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <div className="flex flex-col gap-0.5">
+                <Select value={timezone} onValueChange={handleTimezoneChange}>
+                  <SelectTrigger className="w-[200px] h-8 text-xs">
+                    <Globe className="h-3.5 w-3.5 mr-1 text-muted-foreground" />
+                    <SelectValue placeholder={t(locale, "timezoneLabel")} />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {COMMON_TIMEZONES.map((tz) => (
+                      <SelectItem key={tz} value={tz} className="text-xs">
+                        {tz.replace(/_/g, " ")}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                {/* Timezone auto/manual indicator */}
+                <div className="flex items-center gap-1">
+                  {autoDetectedTz ? (
+                    <span className="text-[10px] text-emerald-500 flex items-center gap-0.5">
+                      <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+                      {t(locale, "autoDetected")}
+                    </span>
+                  ) : (
+                    <span className="text-[10px] text-amber-500 flex items-center gap-0.5" title={t(locale, "tzManualWarning")}>
+                      <AlertCircle className="h-3 w-3" />
+                      {t(locale, "manualTz")}
+                    </span>
+                  )}
+                </div>
+              </div>
 
               {/* Current time */}
               <div className="flex items-center gap-1.5 text-xs bg-muted px-2.5 py-1.5 rounded-md">
@@ -293,6 +360,24 @@ export default function Home() {
                   <Moon className="h-4 w-4" />
                 )}
               </Button>
+
+              {/* Language Switcher */}
+              <div className="flex items-center gap-0.5 bg-muted rounded-md p-0.5">
+                {(["pt", "en", "zh"] as Locale[]).map((l) => (
+                  <button
+                    key={l}
+                    onClick={() => setLocale(l)}
+                    className={`px-1.5 py-1 rounded text-xs transition-all ${
+                      locale === l
+                        ? "bg-background shadow-sm font-medium"
+                        : "hover:bg-background/50"
+                    }`}
+                    title={LOCALE_NAMES[l]}
+                  >
+                    {LOCALE_FLAGS[l]}
+                  </button>
+                ))}
+              </div>
             </div>
           </div>
         </div>
@@ -300,7 +385,7 @@ export default function Home() {
 
       <main className="flex-1 max-w-7xl mx-auto w-full px-4 py-4 space-y-4">
         {/* Summary Cards */}
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+        <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
@@ -311,7 +396,7 @@ export default function Home() {
                 <div className="flex items-center justify-between">
                   <div>
                     <p className="text-xs text-muted-foreground">
-                      Serviços Monitorados
+                      {t(locale, "monitoredServices")}
                     </p>
                     <p className="text-2xl font-bold mt-1">
                       {peakData?.totalServices ?? (
@@ -337,7 +422,7 @@ export default function Home() {
                 <div className="flex items-center justify-between">
                   <div>
                     <p className="text-xs text-muted-foreground">
-                      Em Pico Agora
+                      {t(locale, "inPeakNow")}
                     </p>
                     <p className="text-2xl font-bold mt-1 text-amber-600 dark:text-amber-400">
                       {peakData?.servicesInPeak ?? (
@@ -363,7 +448,7 @@ export default function Home() {
                 <div className="flex items-center justify-between">
                   <div>
                     <p className="text-xs text-muted-foreground">
-                      Melhor Horário
+                      {t(locale, "bestTime")}
                     </p>
                     <p className="text-2xl font-bold mt-1 text-emerald-600 dark:text-emerald-400">
                       {bestTimeInfo ?? (
@@ -389,7 +474,7 @@ export default function Home() {
                 <div className="flex items-center justify-between">
                   <div>
                     <p className="text-xs text-muted-foreground">
-                      Seu Horário Local
+                      {t(locale, "localTime")}
                     </p>
                     <p className="text-lg font-bold mt-1 font-mono">
                       {currentTime || (
@@ -407,6 +492,36 @@ export default function Home() {
               </CardContent>
             </Card>
           </motion.div>
+
+          {/* Ideal AI Now Card */}
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.2 }}
+          >
+            <Card className="border-violet-500/30 bg-gradient-to-br from-violet-500/5 to-amber-500/5">
+              <CardContent className="p-4">
+                <div className="flex items-center justify-between">
+                  <div className="flex-1 min-w-0">
+                    <p className="text-xs text-muted-foreground">
+                      {t(locale, "idealAINow")}
+                    </p>
+                    <p className="text-lg font-bold mt-1 text-violet-600 dark:text-violet-400 truncate">
+                      {idealAIService ? idealAIService.name : <Skeleton className="h-6 w-20 inline-block" />}
+                    </p>
+                    {idealAIService && (
+                      <p className="text-[10px] text-muted-foreground">
+                        {idealAIService.company} • {t(locale, "idealAIDesc")}
+                      </p>
+                    )}
+                  </div>
+                  <div className="h-10 w-10 rounded-lg bg-violet-500/10 flex items-center justify-center">
+                    <Sparkles className="h-5 w-5 text-violet-500" />
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          </motion.div>
         </div>
 
         {/* Recommendation */}
@@ -415,6 +530,7 @@ export default function Home() {
             recommendation={peakData.recommendation}
             servicesInPeak={peakData.servicesInPeak}
             totalServices={peakData.totalServices}
+            locale={locale}
           />
         )}
 
@@ -432,7 +548,7 @@ export default function Home() {
                   value="all"
                   className="text-xs px-2.5 h-7 data-[state=active]:bg-amber-500 data-[state=active]:text-white"
                 >
-                  Todos
+                  {t(locale, "all")}
                 </TabsTrigger>
                 {CATEGORIES.map((cat) => (
                   <TabsTrigger
@@ -440,7 +556,7 @@ export default function Home() {
                     value={cat}
                     className="text-xs px-2.5 h-7 data-[state=active]:bg-amber-500 data-[state=active]:text-white"
                   >
-                    {CATEGORY_LABELS[cat]}
+                    {categoryLabel(locale, cat)}
                   </TabsTrigger>
                 ))}
               </TabsList>
@@ -450,12 +566,12 @@ export default function Home() {
           {/* Region filter */}
           <Select value={region} onValueChange={setRegion}>
             <SelectTrigger className="w-[160px] h-8 text-xs">
-              <SelectValue placeholder="Região" />
+              <SelectValue placeholder={t(locale, "allRegions")} />
             </SelectTrigger>
             <SelectContent>
               {REGIONS.map((r) => (
                 <SelectItem key={r.value} value={r.value} className="text-xs">
-                  {r.label}
+                  {regionLabel(locale, r.value)}
                 </SelectItem>
               ))}
             </SelectContent>
@@ -465,7 +581,7 @@ export default function Home() {
           <div className="relative w-full sm:w-auto">
             <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
             <Input
-              placeholder="Pesquisar serviço..."
+              placeholder={t(locale, "searchPlaceholder")}
               className="pl-8 h-8 text-xs w-full sm:w-[200px]"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
@@ -481,7 +597,7 @@ export default function Home() {
               onClick={() => setView("grid")}
             >
               <LayoutGrid className="h-3.5 w-3.5 mr-1" />
-              Grade
+              {t(locale, "grid")}
             </Button>
             <Button
               variant={view === "heatmap" ? "default" : "outline"}
@@ -490,7 +606,7 @@ export default function Home() {
               onClick={() => setView("heatmap")}
             >
               <BarChart3 className="h-3.5 w-3.5 mr-1" />
-              Mapa
+              {t(locale, "heatmap")}
             </Button>
           </div>
 
@@ -505,21 +621,21 @@ export default function Home() {
             <RefreshCw
               className={`h-3.5 w-3.5 mr-1 ${isLoading ? "animate-spin" : ""}`}
             />
-            Atualizar
+            {t(locale, "refresh")}
           </Button>
         </div>
 
         {/* Active filters display */}
         {(category !== "all" || region !== "all" || search) && (
           <div className="flex items-center gap-2 flex-wrap">
-            <span className="text-xs text-muted-foreground">Filtros:</span>
+            <span className="text-xs text-muted-foreground">{t(locale, "filters")}</span>
             {category !== "all" && (
               <Badge
                 variant="secondary"
                 className="text-xs cursor-pointer"
                 onClick={() => setCategory("all")}
               >
-                {CATEGORY_LABELS[category as Category]} ✕
+                {categoryLabel(locale, category as Category)} ✕
               </Badge>
             )}
             {region !== "all" && (
@@ -528,7 +644,7 @@ export default function Home() {
                 className="text-xs cursor-pointer"
                 onClick={() => setRegion("all")}
               >
-                {REGIONS.find((r) => r.value === region)?.label} ✕
+                {regionLabel(locale, region)} ✕
               </Badge>
             )}
             {search && (
@@ -548,14 +664,14 @@ export default function Home() {
           <Card>
             <CardContent className="p-8 text-center">
               <p className="text-muted-foreground">
-                Erro ao carregar dados. Tente novamente.
+                {t(locale, "loadError")}
               </p>
               <Button
                 variant="outline"
                 className="mt-2"
                 onClick={() => refetch()}
               >
-                Tentar novamente
+                {t(locale, "retry")}
               </Button>
             </CardContent>
           </Card>
@@ -590,13 +706,14 @@ export default function Home() {
                   data={peakData?.heatmap ?? []}
                   currentHour={currentHourLocal}
                   totalServices={peakData?.totalServices ?? 0}
+                  locale={locale}
                 />
 
                 {/* Service list below heatmap */}
                 <Card>
                   <CardContent className="p-4">
                     <h3 className="text-sm font-semibold mb-3">
-                      Serviços atualmente em pico
+                      {t(locale, "inPeakNowList")}
                     </h3>
                     <div className="flex flex-wrap gap-2">
                       {filteredServices
@@ -619,7 +736,7 @@ export default function Home() {
                       {filteredServices.filter((s) => s.isCurrentlyInPeak)
                         .length === 0 && (
                         <p className="text-xs text-muted-foreground">
-                          Nenhum serviço em pico no momento! 🎉
+                          {t(locale, "noServicesInPeak")} 🎉
                         </p>
                       )}
                     </div>
@@ -638,7 +755,7 @@ export default function Home() {
                   <Card>
                     <CardContent className="p-8 text-center">
                       <p className="text-muted-foreground">
-                        Nenhum serviço encontrado com os filtros atuais.
+                        {t(locale, "noServicesFound")}
                       </p>
                     </CardContent>
                   </Card>
@@ -663,6 +780,7 @@ export default function Home() {
                         lastChecked={service.lastChecked ?? null}
                         onCheckStatus={handleCheckStatus}
                         isChecking={checkingId === service.id}
+                        locale={locale}
                       />
                     ))}
                   </div>
@@ -678,12 +796,11 @@ export default function Home() {
         <div className="max-w-7xl mx-auto px-4 py-3">
           <div className="flex flex-col sm:flex-row items-center justify-between gap-2 text-xs text-muted-foreground">
             <p>
-              AI Peak Hours Monitor — Dados de horários de pico baseados em
-              fusos horários dos HQs
+              AI Peak Hours Monitor — {t(locale, "footerText")}
             </p>
             <p>
-              Atualizado automaticamente a cada 5 minutos •{" "}
-              {peakData?.totalServices ?? 0} serviços monitorados
+              {t(locale, "autoRefresh")} •{" "}
+              {peakData?.totalServices ?? 0} {t(locale, "servicesMonitored")}
             </p>
           </div>
         </div>
