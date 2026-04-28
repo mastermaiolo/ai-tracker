@@ -16,9 +16,9 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "AI Peak Hours Monitor",
+  title: "AI Peak Hours Monitor — Maggio & GLM-5.1",
   description:
-    "Descubra os horários de pico e limitações dos serviços de IA globais com conversão automática de fuso horário.",
+    "Descubra os horários de pico e limitações dos serviços de IA globais com conversão automática de fuso horário. Desenvolvido por Maggio & GLM-5.1.",
   keywords: [
     "AI",
     "peak hours",
@@ -29,7 +29,10 @@ export const metadata: Metadata = {
     "ChatGPT",
     "Claude",
     "Gemini",
+    "Maggio",
+    "GLM-5.1",
   ],
+  authors: [{ name: "Maggio & GLM-5.1" }],
 };
 
 export default function RootLayout({

@@ -9,8 +9,8 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { Clock, AlertTriangle, ExternalLink, Loader2 } from "lucide-react";
-import { REGION_FLAGS, type Category } from "@/lib/ai-services";
+import { Clock, AlertTriangle, ExternalLink, Loader2, Globe } from "lucide-react";
+import { AI_SERVICES, REGION_FLAGS, type Category } from "@/lib/ai-services";
 import { formatTimeRange, formatHour } from "@/lib/timezone-utils";
 import { motion } from "framer-motion";
 import { t, type Locale } from "@/lib/i18n";
@@ -97,6 +97,12 @@ const statusDescriptions: Record<Locale, Record<string, string>> = {
   },
 };
 
+// Lookup website URL from AI_SERVICES data
+function getServiceWebsite(serviceName: string): string | null {
+  const service = AI_SERVICES.find(s => s.name === serviceName);
+  return service?.website || null;
+}
+
 export function ServiceCard({
   id,
   name,
@@ -118,20 +124,19 @@ export function ServiceCard({
   const risk = riskColors[riskLevel as keyof typeof riskColors] || riskColors.medium;
   const statusDot = statusDotColors[status] || statusDotColors.unknown;
   const statusDesc = statusDescriptions[locale]?.[status] || statusDescriptions.en[status] || status;
+  const websiteUrl = getServiceWebsite(name);
 
   // Create 24-hour timeline
   const timeline = Array.from({ length: 24 }, (_, h) => {
     let isPrimary = false;
     let isSecondary = false;
 
-    // Check primary peak
     if (primaryPeakLocalStart <= primaryPeakLocalEnd) {
       isPrimary = h >= primaryPeakLocalStart && h < primaryPeakLocalEnd;
     } else {
       isPrimary = h >= primaryPeakLocalStart || h < primaryPeakLocalEnd;
     }
 
-    // Check secondary peak
     if (secondaryPeakLocalStart <= secondaryPeakLocalEnd) {
       isSecondary =
         h >= secondaryPeakLocalStart && h < secondaryPeakLocalEnd;
@@ -282,21 +287,45 @@ export function ServiceCard({
               </div>
             </div>
 
-            {/* Check Status Button */}
-            <Button
-              variant="outline"
-              size="sm"
-              className="w-full text-xs h-7"
-              onClick={() => onCheckStatus(id)}
-              disabled={isChecking}
-            >
-              {isChecking ? (
-                <Loader2 className="h-3 w-3 mr-1 animate-spin" />
-              ) : (
-                <ExternalLink className="h-3 w-3 mr-1" />
+            {/* Action Buttons */}
+            <div className="flex gap-2">
+              {/* Check Status Button */}
+              <Button
+                variant="outline"
+                size="sm"
+                className="flex-1 text-xs h-7"
+                onClick={() => onCheckStatus(id)}
+                disabled={isChecking}
+              >
+                {isChecking ? (
+                  <Loader2 className="h-3 w-3 mr-1 animate-spin" />
+                ) : (
+                  <ExternalLink className="h-3 w-3 mr-1" />
+                )}
+                {isChecking ? t(locale, "checking") : t(locale, "checkStatus")}
+              </Button>
+
+              {/* Visit Website Button */}
+              {websiteUrl && (
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="h-7 px-2"
+                      asChild
+                    >
+                      <a href={websiteUrl} target="_blank" rel="noopener noreferrer">
+                        <Globe className="h-3 w-3" />
+                      </a>
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    <p>{t(locale, "visitWebsite")}</p>
+                  </TooltipContent>
+                </Tooltip>
               )}
-              {isChecking ? t(locale, "checking") : t(locale, "checkStatus")}
-            </Button>
+            </div>
           </CardContent>
         </Card>
       </motion.div>

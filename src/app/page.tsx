@@ -20,7 +20,8 @@ import {
   Sparkles,
   AlertCircle,
   CheckCircle2,
-  Info,
+  ArrowUpDown,
+  ExternalLink,
 } from "lucide-react";
 
 import { Card, CardContent } from "@/components/ui/card";
@@ -102,6 +103,17 @@ interface PeakHoursResponse {
   totalServices: number;
 }
 
+// Sort types
+type SortMode = "peak" | "offpeak" | "alpha" | "risk" | "status";
+
+const SORT_OPTIONS: { value: SortMode; icon: string }[] = [
+  { value: "peak", icon: "🔴" },
+  { value: "offpeak", icon: "🟢" },
+  { value: "alpha", icon: "🔤" },
+  { value: "risk", icon: "⚠️" },
+  { value: "status", icon: "📡" },
+];
+
 function computeBestTime(
   timeSlots: PeakHoursResponse["timeSlots"],
   currentHourLocal: number,
@@ -150,9 +162,20 @@ const regionLabel = (locale: Locale, regionValue: string) => {
   return t(locale, (keyMap[regionValue] || "allRegions") as keyof typeof translations.pt);
 };
 
+const sortLabel = (locale: Locale, mode: SortMode) => {
+  const keyMap: Record<SortMode, string> = {
+    peak: "sortPeakFirst",
+    offpeak: "sortOffPeakFirst",
+    alpha: "sortAlphabetical",
+    risk: "sortRisk",
+    status: "sortStatus",
+  };
+  return t(locale, keyMap[mode] as keyof typeof translations.pt);
+};
+
 import { translations } from "@/lib/i18n";
 
-// Client-side status cache - persists across server cold starts
+// Client-side status cache
 const STATUS_CACHE_KEY = "ai-peak-monitor-status-cache";
 
 interface CachedStatus {
@@ -169,7 +192,6 @@ function loadStatusCache(): Map<string, CachedStatus> {
     if (cached) {
       const parsed = JSON.parse(cached) as CachedStatus[];
       const now = Date.now();
-      // Only keep entries less than 30 minutes old
       const fresh = parsed.filter(e => now - e.timestamp < 30 * 60 * 1000);
       return new Map(fresh.map(e => [e.serviceId, e]));
     }
@@ -194,15 +216,15 @@ export default function Home() {
   // Client-side status cache
   const [statusCache] = useState(() => loadStatusCache());
 
-  // Filters
+  // Filters & Sorting
   const [timezone, setTimezone] = useState(detectUserTimezone());
   const [autoDetectedTz, setAutoDetectedTz] = useState(true);
   const [category, setCategory] = useState<string>("all");
   const [region, setRegion] = useState<string>("all");
   const [search, setSearch] = useState("");
   const [view, setView] = useState<"grid" | "heatmap">("grid");
+  const [sortBy, setSortBy] = useState<SortMode>("peak"); // Default: "In Peak" first
   const [mounted, setMounted] = useState(false);
-  const [showStatusLegend, setShowStatusLegend] = useState(false);
 
   // Check all statuses state
   const [checkingAll, setCheckingAll] = useState(false);
@@ -290,7 +312,6 @@ export default function Home() {
       setCheckingId(serviceId);
     },
     onSuccess: (data, serviceId) => {
-      // Update client-side cache
       if (data.status) {
         statusCache.set(serviceId, {
           serviceId,
@@ -323,7 +344,6 @@ export default function Home() {
     setCheckedCount(0);
     setTotalToCheck(allIds.length);
 
-    // Process in batches of 5 to avoid overloading
     const BATCH_SIZE = 5;
     for (let i = 0; i < allIds.length; i += BATCH_SIZE) {
       const batch = allIds.slice(i, i + BATCH_SIZE);
@@ -353,7 +373,6 @@ export default function Home() {
         setCheckedCount(prev => Math.min(prev + batch.length, allIds.length));
       }
 
-      // Delay between batches
       if (i + BATCH_SIZE < allIds.length) {
         await new Promise(resolve => setTimeout(resolve, 500));
       }
@@ -363,7 +382,7 @@ export default function Home() {
     queryClient.invalidateQueries({ queryKey: ["peak-hours"] });
   }, [peakData?.services, checkingAll, statusCache, queryClient]);
 
-  // Auto-check statuses on first load (check only a few services to not overwhelm)
+  // Auto-check statuses on first load
   const autoCheckDone = useRef(false);
   useEffect(() => {
     if (autoCheckDone.current || !peakData?.services || peakData.services.length === 0) return;
@@ -373,10 +392,8 @@ export default function Home() {
       return cached && cached.status !== "unknown";
     });
 
-    // Only auto-check if there are no cached statuses at all
     if (!hasCachedStatuses) {
       autoCheckDone.current = true;
-      // Auto-check the first batch of 5 services
       const firstFive = peakData.services.slice(0, 5).map(s => s.id);
 
       fetch("/api/check-all-statuses", {
@@ -403,27 +420,65 @@ export default function Home() {
     }
   }, [peakData?.services, statusCache, queryClient]);
 
-  // Filter services by search - use cached status version
-  const filteredServices = useMemo(() => {
-    if (!servicesWithCachedStatus) return [];
-    if (!search) return servicesWithCachedStatus;
-    const lower = search.toLowerCase();
-    return servicesWithCachedStatus.filter(
-      (s) =>
-        s.name.toLowerCase().includes(lower) ||
-        s.company.toLowerCase().includes(lower)
-    );
-  }, [servicesWithCachedStatus, search]);
+  // Filter + Sort services
+  const filteredAndSortedServices = useMemo(() => {
+    let result = servicesWithCachedStatus;
+
+    // Search filter
+    if (search) {
+      const lower = search.toLowerCase();
+      result = result.filter(
+        (s) =>
+          s.name.toLowerCase().includes(lower) ||
+          s.company.toLowerCase().includes(lower)
+      );
+    }
+
+    // Sort
+    const sorted = [...result];
+    const riskOrder: Record<string, number> = { high: 3, medium: 2, low: 1 };
+    const statusOrder: Record<string, number> = { outage: 4, degraded: 3, operational: 2, unknown: 1 };
+
+    switch (sortBy) {
+      case "peak":
+        // In-peak services first, then by risk (high first)
+        sorted.sort((a, b) => {
+          if (a.isCurrentlyInPeak !== b.isCurrentlyInPeak)
+            return a.isCurrentlyInPeak ? -1 : 1;
+          return (riskOrder[b.riskLevel] ?? 2) - (riskOrder[a.riskLevel] ?? 2);
+        });
+        break;
+      case "offpeak":
+        // Off-peak (available) services first, then by risk (low first)
+        sorted.sort((a, b) => {
+          if (a.isCurrentlyInPeak !== b.isCurrentlyInPeak)
+            return a.isCurrentlyInPeak ? 1 : -1;
+          return (riskOrder[a.riskLevel] ?? 2) - (riskOrder[b.riskLevel] ?? 2);
+        });
+        break;
+      case "alpha":
+        sorted.sort((a, b) => a.name.localeCompare(b.name));
+        break;
+      case "risk":
+        sorted.sort((a, b) => (riskOrder[b.riskLevel] ?? 2) - (riskOrder[a.riskLevel] ?? 2));
+        break;
+      case "status":
+        sorted.sort((a, b) => (statusOrder[b.status] ?? 0) - (statusOrder[a.status] ?? 0));
+        break;
+    }
+
+    return sorted;
+  }, [servicesWithCachedStatus, search, sortBy]);
 
   // Compute ideal AI service
   const idealAIService = useMemo(() => {
-    if (!filteredServices || filteredServices.length === 0) return null;
-    const offPeak = filteredServices.filter(s => !s.isCurrentlyInPeak);
+    if (!filteredAndSortedServices || filteredAndSortedServices.length === 0) return null;
+    const offPeak = filteredAndSortedServices.filter(s => !s.isCurrentlyInPeak);
     if (offPeak.length === 0) return null;
     const riskOrder = { low: 0, medium: 1, high: 2 };
     offPeak.sort((a, b) => (riskOrder[a.riskLevel as keyof typeof riskOrder] ?? 1) - (riskOrder[b.riskLevel as keyof typeof riskOrder] ?? 1));
     return offPeak[0];
-  }, [filteredServices]);
+  }, [filteredAndSortedServices]);
 
   // Current hour in user timezone
   const currentHourLocal =
@@ -702,9 +757,7 @@ export default function Home() {
                               <span className="text-[10px] text-muted-foreground">{t(locale, "statusOperational")}</span>
                             </div>
                           </TooltipTrigger>
-                          <TooltipContent>
-                            <p>{t(locale, "statusLegendOp")}</p>
-                          </TooltipContent>
+                          <TooltipContent><p>{t(locale, "statusLegendOp")}</p></TooltipContent>
                         </Tooltip>
                       </TooltipProvider>
 
@@ -717,9 +770,7 @@ export default function Home() {
                               <span className="text-[10px] text-muted-foreground">{t(locale, "statusDegraded")}</span>
                             </div>
                           </TooltipTrigger>
-                          <TooltipContent>
-                            <p>{t(locale, "statusLegendDeg")}</p>
-                          </TooltipContent>
+                          <TooltipContent><p>{t(locale, "statusLegendDeg")}</p></TooltipContent>
                         </Tooltip>
                       </TooltipProvider>
 
@@ -732,9 +783,7 @@ export default function Home() {
                               <span className="text-[10px] text-muted-foreground">{t(locale, "statusOutage")}</span>
                             </div>
                           </TooltipTrigger>
-                          <TooltipContent>
-                            <p>{t(locale, "statusLegendOut")}</p>
-                          </TooltipContent>
+                          <TooltipContent><p>{t(locale, "statusLegendOut")}</p></TooltipContent>
                         </Tooltip>
                       </TooltipProvider>
 
@@ -747,9 +796,7 @@ export default function Home() {
                               <span className="text-[10px] text-muted-foreground">{t(locale, "statusUnknown")}</span>
                             </div>
                           </TooltipTrigger>
-                          <TooltipContent>
-                            <p>{t(locale, "statusLegendUnk")}</p>
-                          </TooltipContent>
+                          <TooltipContent><p>{t(locale, "statusLegendUnk")}</p></TooltipContent>
                         </Tooltip>
                       </TooltipProvider>
                     </div>
@@ -829,6 +876,23 @@ export default function Home() {
                 ))}
               </TabsList>
             </Tabs>
+          </div>
+
+          {/* Sort by */}
+          <div className="flex items-center gap-1">
+            <ArrowUpDown className="h-3.5 w-3.5 text-muted-foreground" />
+            <Select value={sortBy} onValueChange={(v) => setSortBy(v as SortMode)}>
+              <SelectTrigger className="w-[120px] h-8 text-xs">
+                <SelectValue placeholder={t(locale, "sortBy")} />
+              </SelectTrigger>
+              <SelectContent>
+                {SORT_OPTIONS.map((opt) => (
+                  <SelectItem key={opt.value} value={opt.value} className="text-xs">
+                    {opt.icon} {sortLabel(locale, opt.value)}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
 
           {/* Region filter */}
@@ -984,7 +1048,7 @@ export default function Home() {
                       {t(locale, "inPeakNowList")}
                     </h3>
                     <div className="flex flex-wrap gap-2">
-                      {filteredServices
+                      {filteredAndSortedServices
                         .filter((s) => s.isCurrentlyInPeak)
                         .map((s) => (
                           <Badge
@@ -1001,7 +1065,7 @@ export default function Home() {
                             {s.name}
                           </Badge>
                         ))}
-                      {filteredServices.filter((s) => s.isCurrentlyInPeak)
+                      {filteredAndSortedServices.filter((s) => s.isCurrentlyInPeak)
                         .length === 0 && (
                         <p className="text-xs text-muted-foreground">
                           {t(locale, "noServicesInPeak")} 🎉
@@ -1019,7 +1083,7 @@ export default function Home() {
                 exit={{ opacity: 0, x: 20 }}
                 transition={{ duration: 0.2 }}
               >
-                {filteredServices.length === 0 ? (
+                {filteredAndSortedServices.length === 0 ? (
                   <Card>
                     <CardContent className="p-8 text-center">
                       <p className="text-muted-foreground">
@@ -1029,7 +1093,7 @@ export default function Home() {
                   </Card>
                 ) : (
                   <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
-                    {filteredServices.map((service) => (
+                    {filteredAndSortedServices.map((service) => (
                       <ServiceCard
                         key={service.id}
                         id={service.id}
@@ -1064,7 +1128,7 @@ export default function Home() {
         <div className="max-w-7xl mx-auto px-4 py-3">
           <div className="flex flex-col sm:flex-row items-center justify-between gap-2 text-xs text-muted-foreground">
             <p>
-              AI Peak Hours Monitor — {t(locale, "footerText")}
+              AI Peak Hours Monitor — {t(locale, "builtBy")}
             </p>
             <p>
               {t(locale, "autoRefresh")} •{" "}

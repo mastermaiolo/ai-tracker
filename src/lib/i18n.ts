@@ -62,6 +62,7 @@ export const translations = {
     statusOutage: "Indisponível",
     statusUnknown: "Desconhecido",
     verifiedAt: "Verificado:",
+    visitWebsite: "Acessar site",
 
     // Heatmap
     heatmapTitle: "Mapa de Calor - Horários de Pico (24h)",
@@ -90,17 +91,24 @@ export const translations = {
     inPeakLabel: "em pico",
     available: "disponíveis",
 
-    // Filters
+    // Filters & Sorting
     filters: "Filtros:",
     searchPlaceholder: "Pesquisar serviço...",
     grid: "Grade",
     heatmap: "Mapa",
     refresh: "Atualizar",
+    sortBy: "Ordenar por",
+    sortPeakFirst: "Em Pico",
+    sortOffPeakFirst: "Livre",
+    sortAlphabetical: "A-Z",
+    sortRisk: "Risco",
+    sortStatus: "Status",
 
     // Footer
     footerText: "Dados de horários de pico baseados em fusos horários dos HQs",
     autoRefresh: "Atualizado automaticamente a cada 5 minutos",
     servicesMonitored: "serviços monitorados",
+    builtBy: "Desenvolvido por Maggio & GLM-5.1",
 
     // Errors
     loadError: "Erro ao carregar dados. Tente novamente.",
@@ -175,6 +183,7 @@ export const translations = {
     statusOutage: "Outage",
     statusUnknown: "Unknown",
     verifiedAt: "Verified:",
+    visitWebsite: "Visit website",
 
     heatmapTitle: "Peak Hours Heatmap (24h)",
     heatmapInfo: "This chart shows how many AI services are in peak hours for each hour of the day in your timezone.",
@@ -206,10 +215,17 @@ export const translations = {
     grid: "Grid",
     heatmap: "Map",
     refresh: "Refresh",
+    sortBy: "Sort by",
+    sortPeakFirst: "In Peak",
+    sortOffPeakFirst: "Available",
+    sortAlphabetical: "A-Z",
+    sortRisk: "Risk",
+    sortStatus: "Status",
 
     footerText: "Peak hours data based on HQ timezones",
     autoRefresh: "Auto-refreshed every 5 minutes",
     servicesMonitored: "services monitored",
+    builtBy: "Built by Maggio & GLM-5.1",
 
     loadError: "Error loading data. Please try again.",
     retry: "Try again",
@@ -281,6 +297,7 @@ export const translations = {
     statusOutage: "服务中断",
     statusUnknown: "未知",
     verifiedAt: "已验证：",
+    visitWebsite: "访问网站",
 
     heatmapTitle: "高峰时段热力图（24小时）",
     heatmapInfo: "此图表显示每个小时有多少AI服务处于高峰时段。",
@@ -312,10 +329,17 @@ export const translations = {
     grid: "网格",
     heatmap: "热图",
     refresh: "刷新",
+    sortBy: "排序",
+    sortPeakFirst: "高峰优先",
+    sortOffPeakFirst: "空闲优先",
+    sortAlphabetical: "字母",
+    sortRisk: "风险",
+    sortStatus: "状态",
 
     footerText: "高峰时段数据基于各公司总部时区",
     autoRefresh: "每5分钟自动刷新",
     servicesMonitored: "个监控服务",
+    builtBy: "由 Maggio & GLM-5.1 开发",
 
     loadError: "加载数据出错，请重试。",
     retry: "重试",
