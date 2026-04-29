@@ -4,6 +4,7 @@ import { ThemeProvider } from "next-themes";
 import "./globals.css";
 import { Toaster } from "@/components/ui/toaster";
 import { Providers } from "@/components/providers";
+import { PWARegister } from "@/components/pwa-register";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -33,6 +34,7 @@ export const metadata: Metadata = {
     "GLM-5.1",
   ],
   authors: [{ name: "Maggio & GLM-5.1" }],
+  manifest: "/manifest.json",
 };
 
 export default function RootLayout({
@@ -42,6 +44,11 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="pt-BR" suppressHydrationWarning>
+      <head>
+        <link rel="manifest" href="/manifest.json" />
+        <meta name="theme-color" content="#f59e0b" />
+        <link rel="apple-touch-icon" href="/icon-192.png" />
+      </head>
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased bg-background text-foreground`}
       >
@@ -55,6 +62,7 @@ export default function RootLayout({
             {children}
           </Providers>
           <Toaster />
+          <PWARegister />
         </ThemeProvider>
       </body>
     </html>

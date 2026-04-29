@@ -47,6 +47,8 @@ import {
 import { ServiceCard } from "@/components/service-card";
 import { PeakHoursHeatmap } from "@/components/peak-hours-heatmap";
 import { Recommendation } from "@/components/recommendation";
+import { IncidentHistory } from "@/components/incident-history";
+import { NotificationSettings } from "@/components/notification-settings";
 import {
   CATEGORIES,
   CATEGORY_LABELS,
@@ -62,6 +64,13 @@ import {
 } from "@/lib/timezone-utils";
 import { useLocale } from "@/components/locale-provider";
 import { t, LOCALE_FLAGS, LOCALE_NAMES, type Locale } from "@/lib/i18n";
+import { addIncident, resolveIncident, loadIncidents, type Incident } from "@/lib/incidents";
+import {
+  loadNotificationPrefs,
+  playNotificationSound,
+  sendBrowserNotification,
+} from "@/lib/notifications";
+import { toast } from "sonner";
 
 // Types
 interface ServiceData {
@@ -175,6 +184,65 @@ const sortLabel = (locale: Locale, mode: SortMode) => {
 
 import { translations } from "@/lib/i18n";
 
+// Handle status changes: create/resolve incidents, trigger notifications
+function handleStatusChange(
+  serviceId: string,
+  serviceName: string,
+  oldStatus: string | undefined,
+  newStatus: string,
+  locale: Locale
+) {
+  const previous = oldStatus || "unknown";
+  if (previous === newStatus) return;
+
+  const prefs = loadNotificationPrefs();
+  const isProblemStatus = newStatus === "degraded" || newStatus === "outage";
+  const wasProblemStatus = previous === "degraded" || previous === "outage";
+
+  // Status changed TO a problem
+  if (isProblemStatus && !wasProblemStatus) {
+    const incident: Incident = {
+      id: `${serviceId}-${Date.now()}`,
+      serviceId,
+      serviceName,
+      type: newStatus as "degraded" | "outage",
+      timestamp: new Date().toISOString(),
+    };
+    addIncident(incident);
+
+    if (prefs.soundEnabled) {
+      playNotificationSound();
+    }
+
+    if (prefs.visualEnabled) {
+      const toastMsg = newStatus === "outage"
+        ? `${serviceName} ${t(locale, "serviceOutageToast")}`
+        : `${serviceName} ${t(locale, "serviceDegradedToast")}`;
+      toast.error(toastMsg, { duration: 5000 });
+    }
+
+    if (prefs.browserNotifications) {
+      const body = newStatus === "outage"
+        ? `${serviceName} ${t(locale, "serviceOutageToast")}`
+        : `${serviceName} ${t(locale, "serviceDegradedToast")}`;
+      sendBrowserNotification(`AI Peak Monitor - ${t(locale, "incidentOutage")}`, body);
+    }
+  }
+
+  // Status changed FROM problem TO operational
+  if (!isProblemStatus && wasProblemStatus && newStatus === "operational") {
+    const incidents = loadIncidents();
+    const openIncident = incidents.find((i: Incident) => i.serviceId === serviceId && !i.resolvedAt);
+    if (openIncident) {
+      resolveIncident(openIncident.id);
+    }
+
+    if (prefs.visualEnabled) {
+      toast.success(`${serviceName} ${t(locale, "serviceResolvedToast")}`, { duration: 4000 });
+    }
+  }
+}
+
 // Client-side status cache
 const STATUS_CACHE_KEY = "ai-peak-monitor-status-cache";
 
@@ -213,8 +281,23 @@ export default function Home() {
   const queryClient = useQueryClient();
   const mountedRef = useRef(false);
 
-  // Client-side status cache
-  const [statusCache] = useState(() => loadStatusCache());
+  // Client-side status cache - reactive version with setter to trigger re-renders
+  const [statusCache, setStatusCache] = useState(() => loadStatusCache());
+
+  // Helper to update cache and trigger re-render
+  const updateStatusCache = useCallback((serviceId: string, entry: CachedStatus) => {
+    setStatusCache(prev => {
+      const next = new Map(prev);
+      next.set(serviceId, entry);
+      saveStatusCache(next);
+      return next;
+    });
+  }, []);
+
+  // Track previous statuses for change detection (notifications/incidents)
+  const previousStatusMap = useRef<Map<string, string>>(new Map());
+  const localeRef = useRef(locale);
+  localeRef.current = locale;
 
   // Filters & Sorting
   const [timezone, setTimezone] = useState(detectUserTimezone());
@@ -312,14 +395,17 @@ export default function Home() {
       setCheckingId(serviceId);
     },
     onSuccess: (data, serviceId) => {
-      if (data.status) {
-        statusCache.set(serviceId, {
+      if (data.status && data.status !== "unknown") {
+        const previousStatus = previousStatusMap.current.get(serviceId);
+        handleStatusChange(serviceId, data.serviceName || serviceId, previousStatus, data.status, localeRef.current);
+        previousStatusMap.current.set(serviceId, data.status);
+
+        updateStatusCache(serviceId, {
           serviceId,
           status: data.status,
           lastChecked: data.checkedAt || new Date().toISOString(),
           timestamp: Date.now(),
         });
-        saveStatusCache(statusCache);
       }
     },
     onSettled: () => {
@@ -357,14 +443,19 @@ export default function Home() {
 
         if (data.results) {
           for (const result of data.results) {
-            statusCache.set(result.serviceId, {
-              serviceId: result.serviceId,
-              status: result.status,
-              lastChecked: result.checkedAt,
-              timestamp: Date.now(),
-            });
+            if (result.status && result.status !== "unknown") {
+              const previousStatus = previousStatusMap.current.get(result.serviceId);
+              handleStatusChange(result.serviceId, result.serviceName, previousStatus, result.status, localeRef.current);
+              previousStatusMap.current.set(result.serviceId, result.status);
+
+              updateStatusCache(result.serviceId, {
+                serviceId: result.serviceId,
+                status: result.status,
+                lastChecked: result.checkedAt,
+                timestamp: Date.now(),
+              });
+            }
           }
-          saveStatusCache(statusCache);
         }
 
         setCheckedCount(prev => Math.min(prev + batch.length, allIds.length));
@@ -380,7 +471,7 @@ export default function Home() {
 
     setCheckingAll(false);
     queryClient.invalidateQueries({ queryKey: ["peak-hours"] });
-  }, [peakData?.services, checkingAll, statusCache, queryClient]);
+  }, [peakData?.services, checkingAll, updateStatusCache, queryClient]);
 
   // Auto-check statuses on first load
   const autoCheckDone = useRef(false);
@@ -405,14 +496,19 @@ export default function Home() {
         .then(data => {
           if (data.results) {
             for (const result of data.results) {
-              statusCache.set(result.serviceId, {
-                serviceId: result.serviceId,
-                status: result.status,
-                lastChecked: result.checkedAt,
-                timestamp: Date.now(),
-              });
+              if (result.status && result.status !== "unknown") {
+                const previousStatus = previousStatusMap.current.get(result.serviceId);
+                handleStatusChange(result.serviceId, result.serviceName, previousStatus, result.status, localeRef.current);
+                previousStatusMap.current.set(result.serviceId, result.status);
+
+                updateStatusCache(result.serviceId, {
+                  serviceId: result.serviceId,
+                  status: result.status,
+                  lastChecked: result.checkedAt,
+                  timestamp: Date.now(),
+                });
+              }
             }
-            saveStatusCache(statusCache);
             queryClient.invalidateQueries({ queryKey: ["peak-hours"] });
           }
         })
@@ -555,6 +651,12 @@ export default function Home() {
                 <Clock className="h-3.5 w-3.5 text-amber-500" />
                 <span className="font-mono font-medium">{currentTime}</span>
               </div>
+
+              {/* Notification settings */}
+              <NotificationSettings locale={locale} />
+
+              {/* Incident history */}
+              <IncidentHistory locale={locale} />
 
               {/* Dark mode toggle */}
               <Button
@@ -849,112 +951,117 @@ export default function Home() {
           />
         )}
 
-        {/* Filters Row */}
-        <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-center">
-          {/* Category Tabs */}
-          <div className="flex-1 overflow-x-auto">
-            <Tabs
-              value={category}
-              onValueChange={setCategory}
-              className="w-full"
-            >
-              <TabsList className="h-8 p-0.5">
-                <TabsTrigger
-                  value="all"
-                  className="text-xs px-2.5 h-7 data-[state=active]:bg-amber-500 data-[state=active]:text-white"
-                >
-                  {t(locale, "all")}
-                </TabsTrigger>
-                {CATEGORIES.map((cat) => (
+        {/* Filters - Two rows layout */}
+        <div className="space-y-2">
+          {/* Row 1: Category tabs + Search */}
+          <div className="flex gap-3 items-center">
+            <div className="flex-1 overflow-x-auto">
+              <Tabs
+                value={category}
+                onValueChange={setCategory}
+                className="w-full"
+              >
+                <TabsList className="h-8 p-0.5">
                   <TabsTrigger
-                    key={cat}
-                    value={cat}
+                    value="all"
                     className="text-xs px-2.5 h-7 data-[state=active]:bg-amber-500 data-[state=active]:text-white"
                   >
-                    {categoryLabel(locale, cat)}
+                    {t(locale, "all")}
                   </TabsTrigger>
-                ))}
-              </TabsList>
-            </Tabs>
+                  {CATEGORIES.map((cat) => (
+                    <TabsTrigger
+                      key={cat}
+                      value={cat}
+                      className="text-xs px-2.5 h-7 data-[state=active]:bg-amber-500 data-[state=active]:text-white"
+                    >
+                      {categoryLabel(locale, cat)}
+                    </TabsTrigger>
+                  ))}
+                </TabsList>
+              </Tabs>
+            </div>
+
+            {/* Search */}
+            <div className="relative w-full sm:w-auto flex-shrink-0">
+              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+              <Input
+                placeholder={t(locale, "searchPlaceholder")}
+                className="pl-8 h-8 text-xs w-full sm:w-[200px]"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+              />
+            </div>
           </div>
 
-          {/* Sort by */}
-          <div className="flex items-center gap-1">
-            <ArrowUpDown className="h-3.5 w-3.5 text-muted-foreground" />
-            <Select value={sortBy} onValueChange={(v) => setSortBy(v as SortMode)}>
-              <SelectTrigger className="w-[120px] h-8 text-xs">
-                <SelectValue placeholder={t(locale, "sortBy")} />
+          {/* Row 2: Sort + Region + View + Refresh */}
+          <div className="flex gap-2 items-center flex-wrap">
+            {/* Sort by */}
+            <div className="flex items-center gap-1">
+              <ArrowUpDown className="h-3.5 w-3.5 text-muted-foreground" />
+              <Select value={sortBy} onValueChange={(v) => setSortBy(v as SortMode)}>
+                <SelectTrigger className="w-[120px] h-8 text-xs">
+                  <SelectValue placeholder={t(locale, "sortBy")} />
+                </SelectTrigger>
+                <SelectContent>
+                  {SORT_OPTIONS.map((opt) => (
+                    <SelectItem key={opt.value} value={opt.value} className="text-xs">
+                      {opt.icon} {sortLabel(locale, opt.value)}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            {/* Region filter */}
+            <Select value={region} onValueChange={setRegion}>
+              <SelectTrigger className="w-[160px] h-8 text-xs">
+                <SelectValue placeholder={t(locale, "allRegions")} />
               </SelectTrigger>
               <SelectContent>
-                {SORT_OPTIONS.map((opt) => (
-                  <SelectItem key={opt.value} value={opt.value} className="text-xs">
-                    {opt.icon} {sortLabel(locale, opt.value)}
+                {REGIONS.map((r) => (
+                  <SelectItem key={r.value} value={r.value} className="text-xs">
+                    {regionLabel(locale, r.value)}
                   </SelectItem>
                 ))}
               </SelectContent>
             </Select>
-          </div>
 
-          {/* Region filter */}
-          <Select value={region} onValueChange={setRegion}>
-            <SelectTrigger className="w-[160px] h-8 text-xs">
-              <SelectValue placeholder={t(locale, "allRegions")} />
-            </SelectTrigger>
-            <SelectContent>
-              {REGIONS.map((r) => (
-                <SelectItem key={r.value} value={r.value} className="text-xs">
-                  {regionLabel(locale, r.value)}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+            {/* View Toggle */}
+            <div className="flex items-center gap-1">
+              <Button
+                variant={view === "grid" ? "default" : "outline"}
+                size="sm"
+                className={`h-8 text-xs ${view === "grid" ? "bg-amber-500 hover:bg-amber-600" : ""}`}
+                onClick={() => setView("grid")}
+              >
+                <LayoutGrid className="h-3.5 w-3.5 mr-1" />
+                {t(locale, "grid")}
+              </Button>
+              <Button
+                variant={view === "heatmap" ? "default" : "outline"}
+                size="sm"
+                className={`h-8 text-xs ${view === "heatmap" ? "bg-amber-500 hover:bg-amber-600" : ""}`}
+                onClick={() => setView("heatmap")}
+              >
+                <BarChart3 className="h-3.5 w-3.5 mr-1" />
+                {t(locale, "heatmap")}
+              </Button>
+            </div>
 
-          {/* Search */}
-          <div className="relative w-full sm:w-auto">
-            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
-            <Input
-              placeholder={t(locale, "searchPlaceholder")}
-              className="pl-8 h-8 text-xs w-full sm:w-[200px]"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-            />
-          </div>
-
-          {/* View Toggle */}
-          <div className="flex items-center gap-1">
+            {/* Refresh */}
             <Button
-              variant={view === "grid" ? "default" : "outline"}
+              variant="outline"
               size="sm"
-              className={`h-8 text-xs ${view === "grid" ? "bg-amber-500 hover:bg-amber-600" : ""}`}
-              onClick={() => setView("grid")}
+              className="h-8 text-xs"
+              onClick={() => refetch()}
+              disabled={isLoading}
             >
-              <LayoutGrid className="h-3.5 w-3.5 mr-1" />
-              {t(locale, "grid")}
-            </Button>
-            <Button
-              variant={view === "heatmap" ? "default" : "outline"}
-              size="sm"
-              className={`h-8 text-xs ${view === "heatmap" ? "bg-amber-500 hover:bg-amber-600" : ""}`}
-              onClick={() => setView("heatmap")}
-            >
-              <BarChart3 className="h-3.5 w-3.5 mr-1" />
-              {t(locale, "heatmap")}
+              <RefreshCw
+                className={`h-3.5 w-3.5 mr-1 ${isLoading ? "animate-spin" : ""}`}
+              />
+              {t(locale, "refresh")}
             </Button>
           </div>
-
-          {/* Refresh */}
-          <Button
-            variant="outline"
-            size="sm"
-            className="h-8 text-xs"
-            onClick={() => refetch()}
-            disabled={isLoading}
-          >
-            <RefreshCw
-              className={`h-3.5 w-3.5 mr-1 ${isLoading ? "animate-spin" : ""}`}
-            />
-            {t(locale, "refresh")}
-          </Button>
         </div>
 
         {/* Active filters display */}
